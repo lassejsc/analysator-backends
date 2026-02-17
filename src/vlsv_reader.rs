@@ -54,7 +54,7 @@ pub mod mod_vlsv_reader {
     use memmap2::Mmap;
     use ndarray::{Array4, ArrayView1};
     use ndarray::{Axis, Order, s};
-    use num_traits::{Float, FromPrimitive, Num, NumCast, ToPrimitive, Zero};
+    use num_traits::{Float, FromPrimitive, Num, NumCast, Zero};
     use once_cell::sync::OnceCell;
     use regex::Regex;
     use serde::Deserialize;

@@ -1,4 +1,3 @@
-use cmake::Config;
 use std::path::Path;
 use std::process::Command;
 use std::{env, path::PathBuf};
