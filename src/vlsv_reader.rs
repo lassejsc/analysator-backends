@@ -1186,9 +1186,10 @@ pub mod mod_vlsv_reader {
                 + std::iter::Sum
                 + Default
                 + TypeTag
+                + Float
+                + ndarray::ScalarOperand
                 + std::cmp::PartialOrd
-                + Copy
-                + ToPrimitive,
+                + std::fmt::Debug,
         {
             let blockspercell = TryInto::<VlsvDataset>::try_into(
                 self.root()
@@ -1253,10 +1254,81 @@ pub mod mod_vlsv_reader {
                 .unwrap_or(CompressionMethod::NONE);
 
             let mut vdf_map = HashMap::with_capacity(1 << 20);
+            let sparse: T = self
+                .read_sparsity(pop, cid)
+                .unwrap_or(T::from(1e-16).unwrap());
 
             match compression_used {
                 CompressionMethod::HERMITE => {
-                    todo!()
+                    let vdf_byte_size =
+                        self.read_scalar_parameter("VDF_BYTE_SIZE").unwrap() as usize;
+                    if vdf_byte_size != std::mem::size_of::<T>() {
+                        panic!(
+                            "This reader will not work for this combo of T and compressed VDF BYTE SIZE"
+                        );
+                    }
+                    let bytespercell = TryInto::<VlsvDataset>::try_into(
+                        self.root()
+                            .bytespercell
+                            .as_ref()?
+                            .iter()
+                            .find(|v| v.name.as_deref() == Some(pop))?,
+                    )
+                    .ok()?;
+                    let mut bytes_per_cell: Vec<u64> = vec![0; bytespercell.arraysize];
+                    self.read_variable_into::<u64>(None, Some(bytespercell), &mut bytes_per_cell);
+                    let index = cids_with_blocks.iter().position(|&v| v == cid)?;
+                    let read_size = bytes_per_cell[index] as usize;
+                    let read_offset = bytes_per_cell[..index]
+                        .iter()
+                        .map(|&x| x as usize)
+                        .sum::<usize>();
+                    let mut hermite_bytes: Vec<u8> = vec![0_u8; read_size];
+                    let blockvar_slice = slice_ds(&blockvariable, read_offset, read_size);
+                    self.read_variable_into::<u8>(None, Some(blockvar_slice), &mut hermite_bytes);
+                    let hermite_state = parse_hermite_state(&hermite_bytes);
+                    let vdf = reconstruct_vdf::<f32>(&hermite_state);
+                    let mut vdf_t = vdf.mapv(|val| T::from(val).unwrap());
+                    let scale = T::from(0.1).unwrap();
+                    let factor = scale * sparse;
+                    let base = T::from(10.0).unwrap();
+                    let max_exponent = T::from(38.0).unwrap();
+                    vdf_t.map_inplace(|x| {
+                        let clamped_x = (*x).min(max_exponent);
+                        *x = factor * base.powf(clamped_x);
+                        if *x < sparse {
+                            *x = T::zero();
+                        }
+                    });
+                    let (nvx, nvy, nvz) = self.get_vspace_mesh_bbox(pop)?;
+                    let extents = self.get_vspace_mesh_extents(pop)?;
+
+                    let dvx = (extents.3 - extents.0) / nvx as f64;
+                    let dvy = (extents.4 - extents.1) / nvy as f64;
+                    let dvz = (extents.5 - extents.2) / nvz as f64;
+
+                    let start_i = ((hermite_state.v_limits[0] - extents.0) / dvx).round() as usize;
+                    let start_j = ((hermite_state.v_limits[1] - extents.1) / dvy).round() as usize;
+                    let start_k = ((hermite_state.v_limits[2] - extents.2) / dvz).round() as usize;
+                    let blocks_per_dim_x = nvx / wid;
+                    let blocks_per_dim_y = nvy / wid;
+
+                    for (coord, &val) in vdf_t.indexed_iter() {
+                        let (i, j, k, _) = coord;
+                        let gi = i + start_i;
+                        let gj = j + start_j;
+                        let gk = k + start_k;
+                        let block_i = gi / wid;
+                        let block_j = gj / wid;
+                        let block_k = gk / wid;
+                        let li = gi % wid;
+                        let lj = gj % wid;
+                        let lk = gk % wid;
+                        let linear_block_idx =
+                            block_i + blocks_per_dim_x * (block_j + blocks_per_dim_y * block_k);
+                        let local_id = li + wid * (lj + wid * lk);
+                        vdf_map.insert(local_id + (linear_block_idx * wid3), val);
+                    }
                 }
 
                 CompressionMethod::NONE | CompressionMethod::ZFP => {
@@ -1965,6 +2037,9 @@ pub mod mod_vlsv_reader {
                     vdf_t.map_inplace(|x| {
                         let clamped_x = (*x).min(max_exponent);
                         *x = factor * base.powf(clamped_x);
+                        if *x < sparse {
+                            *x = T::zero();
+                        }
                     });
                     Some(vdf_t)
                 }
