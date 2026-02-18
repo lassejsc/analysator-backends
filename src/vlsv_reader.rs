@@ -1048,10 +1048,7 @@ pub mod mod_vlsv_reader {
             self.variables()
                 .get(name)
                 .or_else(|| self.parameters().get(name))
-                .or_else(|| {
-                    eprintln!("'{name}' not found in VARIABLES or PARAMETERS");
-                    None
-                })?
+                .or_else(|| None)?
                 .clone()
                 .try_into()
                 .ok()
