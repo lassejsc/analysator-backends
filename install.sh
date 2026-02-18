@@ -9,7 +9,7 @@ INCLUDEDIR="$PREFIX/include"
 LIBDIR="$PREFIX/lib"
 PKGDIR="$LIBDIR/pkgconfig"
 
-cargo build --$BUILD_TYPE --features=vlsv_ptr,vlsv_view,vlsv_dump,zfp
+cargo build --$BUILD_TYPE --features=vlsv_ptr,vlsv_view,vlsv_dump
 sudo install -d "$INCLUDEDIR" "$LIBDIR" "$PKGDIR"
 sudo install -m 0644 include/vlsvrs.h "$INCLUDEDIR/"
 OS="$(uname -s)"

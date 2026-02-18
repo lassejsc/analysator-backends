@@ -1341,7 +1341,6 @@ pub mod mod_vlsv_reader {
                             blocks.resize(vsamples, T::default());
                             self.read_variable_into::<T>(None, Some(blockvar_slice), &mut blocks);
                         }
-                        #[cfg(feature = "zfp")]
                         CompressionMethod::ZFP => {
                             let vdf_byte_size =
                                 self.read_scalar_parameter("VDF_BYTE_SIZE").unwrap() as usize;
@@ -1379,9 +1378,10 @@ pub mod mod_vlsv_reader {
                                 &mut zblocks,
                             );
 
-                            let retval =
+                            let retval = unsafe {
                                 zfp_decompress_1d_f32(&zblocks, vsamples, sparse.to_f64().unwrap())
-                                    .unwrap();
+                                    .unwrap()
+                            };
 
                             blocks.resize(retval.len(), T::zero());
                             blocks.copy_from_slice(bytemuck::cast_slice(retval.as_slice()));
@@ -1713,8 +1713,6 @@ pub mod mod_vlsv_reader {
                 CompressionMethod::MLP | CompressionMethod::MLPMULTI => {
                     panic!("Compiled without MLP support")
                 }
-                #[cfg(not(feature = "zfp"))]
-                CompressionMethod::ZFP => panic!("Compiled without ZFP support"),
             }
 
             Some(vdf_map)
@@ -1852,7 +1850,6 @@ pub mod mod_vlsv_reader {
                     }
                     Some(vdf)
                 }
-                #[cfg(feature = "zfp")]
                 CompressionMethod::ZFP => {
                     let vdf_byte_size =
                         self.read_scalar_parameter("VDF_BYTE_SIZE").unwrap() as usize;
@@ -1893,12 +1890,14 @@ pub mod mod_vlsv_reader {
                     let mut zblocks: Vec<u8> = vec![0_u8; zread_size];
                     let zblockvar_slice = slice_ds(&blockvariable, zstart_block, zread_size);
                     self.read_variable_into::<u8>(None, Some(zblockvar_slice), &mut zblocks);
-                    let retval = zfp_decompress_1d_f32(
-                        &zblocks,
-                        vsamples,
-                        sparse.to_f64().expect("Failed to cast sparse value to f64"),
-                    )
-                    .unwrap();
+                    let retval = unsafe {
+                        zfp_decompress_1d_f32(
+                            &zblocks,
+                            vsamples,
+                            sparse.to_f64().expect("Failed to cast sparse value to f64"),
+                        )
+                        .unwrap()
+                    };
                     blocks.resize(retval.len(), T::zeroed());
                     blocks.copy_from_slice(bytemuck::cast_slice(retval.as_slice()));
                     let mut vdf = Array4::<T>::zeros((nvx, nvy, nvz, 1));
@@ -2220,10 +2219,6 @@ pub mod mod_vlsv_reader {
                 #[cfg(no_nn)]
                 CompressionMethod::MLP | CompressionMethod::MLPMULTI => {
                     panic!("Compiled without MLP support");
-                }
-                #[cfg(not(feature = "zfp"))]
-                CompressionMethod::ZFP => {
-                    panic!("Compiled without ZFP support");
                 }
             }
         }
@@ -2733,77 +2728,129 @@ pub mod mod_vlsv_reader {
         })
     }
 
-    #[cfg(feature = "zfp")]
-    pub fn zfp_decompress_1d_f32(bytes: &[u8], nx: usize, sparse: f64) -> Result<Vec<f32>, String> {
-        use std::os::raw::c_void;
-        use zfp_sys::*;
+    pub unsafe fn zfp_decompress_1d_f32(
+        bytes: &[u8],
+        nx: usize,
+        sparse: f64,
+    ) -> Result<Vec<f32>, String> {
+        use std::ffi::c_void;
+        use std::os::raw::{c_double, c_uint};
+
         if bytes.is_empty() {
             return Err("ERROR: no bytes to decompress".into());
         }
-        let stream = unsafe { stream_open(bytes.as_ptr() as *mut c_void, bytes.len()) };
-        if stream.is_null() {
-            return Err("ERROR: failed to open ZFP stream".into());
+        if nx == 0 {
+            return Ok(Vec::new());
+        }
+        if nx > (u32::MAX as usize) {
+            return Err("ERROR: nx too large ".into());
         }
 
-        let zfp = unsafe { zfp_stream_open(stream) };
-        unsafe { zfp_stream_set_accuracy(zfp, sparse) };
+        #[repr(C)]
+        struct Bitstream {
+            _private: [u8; 0],
+        }
+        #[repr(C)]
+        struct ZfpStream {
+            _private: [u8; 0],
+        }
+        #[repr(C)]
+        struct ZfpField {
+            _private: [u8; 0],
+        }
+
+        #[repr(i32)]
+        #[allow(non_camel_case_types)]
+        #[derive(Copy, Clone)]
+        enum zfp_type {
+            zfp_type_none = 0,
+            zfp_type_int32 = 1,
+            zfp_type_int64 = 2,
+            zfp_type_float = 3,
+            zfp_type_double = 4,
+        }
+
+        #[link(name = "zfp")]
+        unsafe extern "C" {
+            fn stream_open(buffer: *mut c_void, bytes: usize) -> *mut Bitstream;
+            fn stream_close(stream: *mut Bitstream);
+
+            fn zfp_stream_open(stream: *mut Bitstream) -> *mut ZfpStream;
+            fn zfp_stream_close(stream: *mut ZfpStream);
+            fn zfp_stream_rewind(stream: *mut ZfpStream);
+            fn zfp_stream_set_accuracy(stream: *mut ZfpStream, tolerance: c_double) -> c_double;
+
+            fn zfp_field_1d(pointer: *mut c_void, ty: zfp_type, nx: c_uint) -> *mut ZfpField;
+            fn zfp_field_free(field: *mut ZfpField);
+
+            fn zfp_decompress(stream: *mut ZfpStream, field: *mut ZfpField) -> usize;
+        }
+
+        struct BsGuard(*mut Bitstream);
+        impl Drop for BsGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    if !self.0.is_null() {
+                        stream_close(self.0);
+                    }
+                }
+            }
+        }
+
+        struct ZfpGuard(*mut ZfpStream);
+        impl Drop for ZfpGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    if !self.0.is_null() {
+                        zfp_stream_close(self.0);
+                    }
+                }
+            }
+        }
+
+        struct FieldGuard(*mut ZfpField);
+        impl Drop for FieldGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    if !self.0.is_null() {
+                        zfp_field_free(self.0);
+                    }
+                }
+            }
+        }
+
         let mut out = vec![0f32; nx];
-        let field = unsafe {
-            zfp_field_1d(
+
+        unsafe {
+            let bs = stream_open(bytes.as_ptr() as *mut c_void, bytes.len());
+            if bs.is_null() {
+                return Err("ERROR: failed to open ZFP bitstream".into());
+            }
+            let _bs_guard = BsGuard(bs);
+
+            let zfp = zfp_stream_open(bs);
+            if zfp.is_null() {
+                return Err("ERROR: failed to open ZFP stream".into());
+            }
+            let _zfp_guard = ZfpGuard(zfp);
+            let _actual_tol: c_double = zfp_stream_set_accuracy(zfp, sparse as c_double);
+            zfp_stream_rewind(zfp);
+            let field = zfp_field_1d(
                 out.as_mut_ptr() as *mut c_void,
-                zfp_type_zfp_type_float,
-                nx as usize,
-            )
-        };
-        if field.is_null() {
-            unsafe { zfp_stream_close(zfp) };
-            unsafe { stream_close(stream) };
-            return Err("ERROR: ZFP failed to init array".into());
+                zfp_type::zfp_type_float,
+                nx as c_uint,
+            );
+            if field.is_null() {
+                return Err("ERROR: ZFP failed to init field metadata".into());
+            }
+            let _field_guard = FieldGuard(field);
+
+            let written = zfp_decompress(zfp, field);
+            if written == 0 {
+                return Err("ERROR: ZFP decompression failed ".into());
+            }
         }
 
-        let _ = unsafe {
-            zfp_decompress(zfp, field);
-            zfp_field_free(field);
-            zfp_stream_close(zfp);
-            stream_close(stream)
-        };
-        Ok(out)
-    }
-
-    #[cfg(feature = "zfp")]
-    pub fn zfp_decompress_1d_f64(bytes: &[u8], nx: usize, sparse: f64) -> Result<Vec<f64>, String> {
-        use std::os::raw::c_void;
-        use zfp_sys::*;
-        if bytes.is_empty() {
-            return Err("ERROR: no bytes to decompress".into());
-        }
-        let stream = unsafe { stream_open(bytes.as_ptr() as *mut c_void, bytes.len()) };
-        if stream.is_null() {
-            return Err("ERROR: failed to open ZFP stream".into());
-        }
-
-        let zfp = unsafe { zfp_stream_open(stream) };
-        unsafe { zfp_stream_set_accuracy(zfp, sparse) };
-        let mut out = vec![0f64; nx];
-        let field = unsafe {
-            zfp_field_1d(
-                out.as_mut_ptr() as *mut c_void,
-                zfp_type_zfp_type_double,
-                nx as usize,
-            )
-        };
-        if field.is_null() {
-            unsafe { zfp_stream_close(zfp) };
-            unsafe { stream_close(stream) };
-            return Err("ERROR: ZFP failed to init array".into());
-        }
-
-        let _ = unsafe {
-            zfp_decompress(zfp, field);
-            zfp_field_free(field);
-            zfp_stream_close(zfp);
-            stream_close(stream)
-        };
         Ok(out)
     }
 

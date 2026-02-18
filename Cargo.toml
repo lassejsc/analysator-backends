@@ -30,7 +30,6 @@ rayon =  {version="1.11.0",optional=true}
 regex = "1.12.3"
 serde = { version = "1.0", features = ["derive"] }
 serde-xml-rs = "0.6"
-zfp-sys = {version="0.4.2",optional=true}
 
 [target.'cfg(target_os = "linux")'.dependencies]
 futures = {version="0.3", optional=true}
@@ -73,7 +72,6 @@ uring = ["dep:tokio-uring", "dep:futures"]
 vlsv_view = ["dep:raylib"]
 vlsv_ptr = ["dep:rayon","dep:rand","dep:rand_distr"]
 vlsv_dump = ["dep:clap"]
-zfp = ["dep:zfp-sys"]
 
 [profile.release]
 opt-level = 3

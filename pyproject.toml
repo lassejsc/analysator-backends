@@ -24,7 +24,7 @@ Issues = "https://github.com/kstppd/vlsvrs/issues"
 bindings = "pyo3"
 
 no-default-features = true
-features = ["with_bindings","uring","zfp"]
+features = ["with_bindings","uring"]
 
 profile = "release"
 module-name = "vlsvrs"
