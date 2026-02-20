@@ -56,21 +56,33 @@ fn main() {
     if let Some(cc) = compiler {
         println!("cargo:rerun-if-changed={}", mlp_src.display());
         let mut gpu_cmd = Command::new(cc);
-        gpu_cmd.args(&[
-            mlp_src.to_str().unwrap(),
-            "--std=c++20",
-            "-DTINYAI_MEMORY_GB=4",
-            &format!("-I{}", include_path.display()),
-            "--shared",
-            "-o",
-            ml_lib_path.to_str().unwrap(),
-            "-Xcompiler=-fPIC",
-            "-lcublas",
-        ]);
-
         if cc == "nvcc" {
+            gpu_cmd.args(&[
+                mlp_src.to_str().unwrap(),
+                "--std=c++20",
+                "-DTINYAI_MEMORY_GB=4",
+                &format!("-I{}", include_path.display()),
+                "--shared",
+                "-o",
+                ml_lib_path.to_str().unwrap(),
+                "-Xcompiler=-fPIC",
+                "-lcublas",
+                "-lblas",
+            ]);
             gpu_cmd.arg("-DNOPROFILE").arg("-arch=sm_86");
         } else if cc == "hipcc" {
+            gpu_cmd.args(&[
+                mlp_src.to_str().unwrap(),
+                "--std=c++20",
+                "-DTINYAI_MEMORY_GB=4",
+                &format!("-I{}", include_path.display()),
+                "--shared",
+                "-o",
+                ml_lib_path.to_str().unwrap(),
+                "-fPIC",
+                "-lhipblas",
+                "-lblas",
+            ]);
             gpu_cmd.arg("-DNOPROFILE").arg("-x").arg("hip");
         }
         if !gpu_cmd.status().map(|s| s.success()).unwrap_or(false) {
