@@ -104,9 +104,6 @@ fn main() {
             } else if cc == "hipcc" {
                 println!("cargo:rustc-link-lib=hipblas");
             }
-            println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
-            println!("cargo:rustc-link-lib=cudart");
-            println!("cargo:rustc-link-lib=cublas");
         } else {
             println!("cargo:warning=MLP build failed. Setting no_nn.");
             println!("cargo:rustc-cfg=no_nn");
