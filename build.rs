@@ -53,6 +53,8 @@ fn main() {
     };
 
     let include_path = asterix_dir.join("include");
+
+    let mut ml_compiled = false;
     if let Some(cc) = compiler {
         println!("cargo:rerun-if-changed={}", mlp_src.display());
         let mut gpu_cmd = Command::new(cc);
@@ -87,27 +89,31 @@ fn main() {
             ]);
             gpu_cmd.arg("-DNOPROFILE").arg("-x").arg("hip");
         }
-        if !gpu_cmd.status().map(|s| s.success()).unwrap_or(false) {
-            panic!("GPU compilation failed with {}.", cc);
-        }
-        println!("cargo:rustc-link-search=native={}", lib_out_dir.display());
-        println!("cargo:rustc-link-lib=dylib={}", ml_lib_name);
 
-        if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
-            println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_out_dir.display());
-        }
-        if cc == "nvcc" {
+        if gpu_cmd.status().map(|s| s.success()).unwrap_or(false) {
+            ml_compiled = true;
+            println!("cargo:rustc-link-search=native={}", lib_out_dir.display());
+            println!("cargo:rustc-link-lib=dylib={}", ml_lib_name);
+
+            if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_out_dir.display());
+            }
+            if cc == "nvcc" {
+                println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
+                println!("cargo:rustc-link-lib=cudart");
+                println!("cargo:rustc-link-lib=cublas");
+            } else if cc == "hipcc" {
+                println!("cargo:rustc-link-lib=hipblas");
+            }
             println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
             println!("cargo:rustc-link-lib=cudart");
             println!("cargo:rustc-link-lib=cublas");
-        } else if cc == "hipcc" {
-            println!("cargo:rustc-link-lib=hipblas");
+        } else {
+            println!("cargo:warning=MLP build failed. Setting no_nn.");
+            println!("cargo:rustc-cfg=no_nn");
         }
-        println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
-        println!("cargo:rustc-link-lib=cudart");
-        println!("cargo:rustc-link-lib=cublas");
     } else {
-        println!("cargo:warning=No GPU compiler found. NN features disabled.");
+        println!("cargo:warning=No GPU compiler found. ML disabled.");
         println!("cargo:rustc-cfg=no_nn");
     }
 
@@ -138,6 +144,9 @@ fn main() {
     if linux {
         println!("cargo:rustc-link-arg=-lstdc++");
     }
+
+    let ml_msg = if ml_compiled { "OK" } else { "FAILED (no_nn)" };
+    println!("cargo:warning=ZFP/Octree: OK | MLP: {}", ml_msg);
 }
 
 fn is_program_in_path(program: &str) -> bool {
