@@ -5335,7 +5335,6 @@ pub mod mod_vlsv_c_exports {
 
 #[cfg(feature = "with_bindings")]
 pub mod mod_vlsv_py_exports {
-    use crate::mod_vlsv_reader::HermiteState;
 
     use super::mod_vlsv_reader::*;
     use bytemuck::pod_read_unaligned;
