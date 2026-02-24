@@ -135,6 +135,14 @@ fn main() {
     } else {
         "FAILED (no_octree)"
     };
+    let zfp_lib_dir = zfp_dst.join("lib");
+    let zfp_lib64_dir = zfp_dst.join("lib64");
+
+    if zfp_lib64_dir.exists() {
+        println!("cargo:rustc-link-search=native={}", zfp_lib64_dir.display());
+    } else {
+        println!("cargo:rustc-link-search=native={}", zfp_lib_dir.display());
+    }
     println!("cargo:warning=Octree: {} | MLP: {}", octree_msg, ml_msg);
 }
 
