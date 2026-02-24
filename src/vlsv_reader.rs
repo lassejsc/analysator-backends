@@ -1718,6 +1718,134 @@ pub mod mod_vlsv_reader {
             Some(vdf_map)
         }
 
+        pub fn get_hermite<T>(&self, cid: usize, pop: &str) -> Option<HermiteState>
+        where
+            T: Pod
+                + Zero
+                + Num
+                + NumCast
+                + std::iter::Sum
+                + Default
+                + TypeTag
+                + Float
+                + ndarray::ScalarOperand
+                + std::cmp::PartialOrd
+                + std::fmt::Debug,
+        {
+            let blockspercell = TryInto::<VlsvDataset>::try_into(
+                self.root()
+                    .blockspercell
+                    .as_ref()?
+                    .iter()
+                    .find(|v| v.name.as_deref() == Some(pop))?,
+            )
+            .ok()?;
+
+            let cellswithblocks = TryInto::<VlsvDataset>::try_into(
+                self.root()
+                    .cellswithblocks
+                    .as_ref()?
+                    .iter()
+                    .find(|v| v.name.as_deref() == Some(pop))?,
+            )
+            .ok()?;
+
+            let blockvariable = TryInto::<VlsvDataset>::try_into(
+                self.root()
+                    .blockvariable
+                    .as_ref()?
+                    .iter()
+                    .find(|v| v.name.as_deref() == Some(pop))?,
+            )
+            .ok()?;
+
+            let wid = self.get_wid(pop)?;
+            let wid3 = wid.pow(3);
+            let (nvx, nvy, nvz) = self.get_vspace_mesh_bbox(pop)?;
+            let (mx, my, mz) = (nvx / wid, nvy / wid, nvz / wid);
+
+            let mut cids_with_blocks: Vec<usize> = vec![0; cellswithblocks.arraysize];
+            let mut blocks_per_cell: Vec<u32> = vec![0; blockspercell.arraysize];
+            self.read_variable_into::<usize>(None, Some(cellswithblocks), &mut cids_with_blocks);
+            self.read_variable_into::<u32>(None, Some(blockspercell), &mut blocks_per_cell);
+            let index_res = cids_with_blocks.iter().position(|&v| v == cid);
+            let index = if let Some(v) = index_res {
+                v
+            } else {
+                println!("Available cids with blocks{:?}", cids_with_blocks);
+                panic!("CID DOES NOT CONTAINS VDF!");
+            };
+            let read_size = blocks_per_cell[index] as usize;
+            let start_block = blocks_per_cell[..index]
+                .iter()
+                .map(|&x| x as usize)
+                .sum::<usize>();
+
+            fn slice_ds(ds: &VlsvDataset, elem_offset: usize, elem_count: usize) -> VlsvDataset {
+                let mut sub = ds.clone();
+                sub.offset = ds.offset + elem_offset * ds.vectorsize * ds.datasize;
+                sub.arraysize = elem_count;
+                sub
+            }
+
+            let id2ijk = |id: usize| -> (usize, usize, usize) {
+                let plane = mx * my;
+                debug_assert!(id < plane * mz, "GID out of bounds");
+                let k = id / plane;
+                let rem = id % plane;
+                let j = rem / mx;
+                let i = rem % mx;
+                (i, j, k)
+            };
+
+            // Read block data (T)
+            let vsamples = read_size * wid3;
+            let mut blocks: Vec<T> = vec![];
+            let compression_used = &blockvariable
+                .compression
+                .clone()
+                .unwrap_or(CompressionMethod::NONE);
+
+            let sparse: T = self
+                .read_sparsity(pop, cid)
+                .unwrap_or(T::from(1e-16).unwrap());
+            match compression_used {
+                CompressionMethod::HERMITE => {
+                    let vdf_byte_size =
+                        self.read_scalar_parameter("VDF_BYTE_SIZE").unwrap() as usize;
+                    if vdf_byte_size != std::mem::size_of::<T>() {
+                        panic!(
+                            "This reader will not work for this combo of T and compressed VDF BYTE SIZE"
+                        );
+                    }
+                    let bytespercell = TryInto::<VlsvDataset>::try_into(
+                        self.root()
+                            .bytespercell
+                            .as_ref()?
+                            .iter()
+                            .find(|v| v.name.as_deref() == Some(pop))?,
+                    )
+                    .ok()?;
+                    let mut bytes_per_cell: Vec<u64> = vec![0; bytespercell.arraysize];
+                    self.read_variable_into::<u64>(None, Some(bytespercell), &mut bytes_per_cell);
+                    let index = cids_with_blocks.iter().position(|&v| v == cid)?;
+                    let read_size = bytes_per_cell[index] as usize;
+                    let read_offset = bytes_per_cell[..index]
+                        .iter()
+                        .map(|&x| x as usize)
+                        .sum::<usize>();
+                    let mut hermite_bytes: Vec<u8> = vec![0_u8; read_size];
+                    let blockvar_slice = slice_ds(&blockvariable, read_offset, read_size);
+                    self.read_variable_into::<u8>(None, Some(blockvar_slice), &mut hermite_bytes);
+                    let hermite_state = parse_hermite_state(&hermite_bytes);
+                    Some(hermite_state)
+                }
+                _ => {
+                    panic!("Only hermite supported");
+                }
+            }
+        }
+
         pub fn read_vdf<T>(&self, cid: usize, pop: &str) -> Option<Array4<T>>
         where
             T: Pod
@@ -5207,6 +5335,8 @@ pub mod mod_vlsv_c_exports {
 
 #[cfg(feature = "with_bindings")]
 pub mod mod_vlsv_py_exports {
+    use crate::mod_vlsv_reader::HermiteState;
+
     use super::mod_vlsv_reader::*;
     use bytemuck::pod_read_unaligned;
     use ndarray::Array2;
@@ -5228,6 +5358,24 @@ pub mod mod_vlsv_py_exports {
     #[pyclass(name = "VlsvFile")]
     pub struct PyVlsvFile {
         inner: VlsvFile,
+    }
+    use pyo3::prelude::*;
+
+    #[pyclass]
+    #[derive(Debug, Clone)]
+    pub struct HermiteStateOut {
+        #[pyo3(get)]
+        pub n_hermite_harmonic: i32,
+        #[pyo3(get)]
+        pub vth: f32,
+        #[pyo3(get)]
+        pub u: [f32; 3],
+        #[pyo3(get)]
+        pub spectrum: Vec<f32>,
+        #[pyo3(get)]
+        pub v_limits: [f64; 6],
+        #[pyo3(get)]
+        pub shape: [usize; 3],
     }
 
     #[pymethods]
@@ -5253,6 +5401,21 @@ pub mod mod_vlsv_py_exports {
 
         fn get_wid(&self, pop: &str) -> Option<usize> {
             self.inner.get_wid(pop)
+        }
+
+        fn get_hermite(&self, cid: usize, pop: &str) -> Option<HermiteStateOut> {
+            let raw_hermite = self
+                .inner
+                .get_hermite::<f32>(cid, pop)
+                .expect("Could not read Hermite");
+            Some(HermiteStateOut {
+                n_hermite_harmonic: raw_hermite.n_hermite_harmonic,
+                vth: raw_hermite.vth,
+                u: raw_hermite.u,
+                spectrum: raw_hermite.spectrum,
+                v_limits: raw_hermite.v_limits,
+                shape: raw_hermite.shape,
+            })
         }
 
         fn get_global_wid(&self) -> Option<usize> {
