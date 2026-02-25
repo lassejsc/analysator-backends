@@ -617,101 +617,75 @@ pub mod mod_vlsv_reader {
             Some(version)
         }
 
-        fn read_variable_into<T: Sized + Pod + TypeTag + std::cmp::PartialOrd>(
+        fn read_variable_into<T: Sized + Pod + TypeTag>(
             &self,
             name: Option<&str>,
             dataset: Option<VlsvDataset>,
             dst: &mut [T],
         ) {
-            //Sanity check
             let info = match (name, dataset) {
-                (None, None) => {
-                    panic!("Tried to call read_variable_into with no Dataset and no Variable name")
-                }
-                (Some(_), Some(_)) => {
-                    panic!("Tried to call read_variable_into with both Name and Dataset specified ")
-                }
-                (Some(name), None) => self
-                    .get_dataset(name)
-                    .expect("No data set found for variable: {name}"),
+                (Some(n), None) => self
+                    .get_dataset(n)
+                    .unwrap_or_else(|| panic!("No dataset found: {n}")),
                 (None, Some(d)) => d,
+                _ => panic!("read_variable_into requires exactly one of 'name' or 'dataset'"),
             };
-            let expected_bytes = info.datasize * info.arraysize * info.vectorsize;
-            let end = info.offset + expected_bytes;
-            let src_bytes = &self.memorymap()[info.offset..end];
-            let dst_bytes = bytemuck::cast_slice_mut::<T, u8>(dst);
 
-            /*
-               === DYNAMIC DISPATCH RULES ===
-               Floating point conversions ONLY!!!
-               Not doing any int conversions becasue the user can just read the correct type.
-               For floats it makes sense as we may need to read f64 fields as f32 for memory savings.
-            */
+            let expected_bytes = info.datasize * info.arraysize * info.vectorsize;
+            assert_eq!(dst.len() * size_of::<T>(), expected_bytes);
+            let src_bytes = &self.memorymap()[info.offset..info.offset + expected_bytes];
             let type_on_disk = info.datatype;
+            let size_on_disk = info.datasize;
             let type_of_t = T::data_type();
+            let size_of_t = std::mem::size_of::<T>();
+
             let types_match = type_on_disk == type_of_t;
-            let sizes_match = info.datasize == std::mem::size_of::<T>();
+            let sizes_match = size_on_disk == size_of_t;
             let is_compressed = info.compression != Some(CompressionMethod::NONE);
-            //T=>T
+
+            //Straight Copy (this is weird but when vdfs are compreessed we read raw bytes)
             if (types_match && sizes_match) || ((types_match || sizes_match) && is_compressed) {
+                let dst_bytes = bytemuck::cast_slice_mut::<T, u8>(dst);
                 dst_bytes.copy_from_slice(src_bytes);
                 return;
             }
-            //f32=>f64
-            if type_on_disk == DataType::Float
-                && info.datasize == std::mem::size_of::<f32>()
-                && type_of_t == DataType::Float
-                && std::mem::size_of::<T>() == std::mem::size_of::<f64>()
-            {
-                let dst_f64: &mut [f64] = bytemuck::cast_slice_mut(dst);
-                for (i, bytes) in src_bytes
-                    .chunks_exact(std::mem::size_of::<f32>())
-                    .enumerate()
-                {
-                    let v64 = f32::from_le_bytes(bytes.try_into().unwrap()) as f64;
-                    dst_f64[i] = v64;
+
+            //Dynamic Dispatchh
+            match (type_on_disk, size_on_disk, type_of_t, size_of_t) {
+                //f32 => f64
+                (DataType::Float, 4, DataType::Float, 8) => {
+                    let dst_f64: &mut [f64] = bytemuck::cast_slice_mut(dst);
+                    src_bytes
+                        .chunks_exact(4)
+                        .zip(dst_f64)
+                        .for_each(|(src, out)| {
+                            *out = f32::from_le_bytes(src.try_into().unwrap()) as f64;
+                        });
                 }
-                return;
-            }
-            //f64=>f32
-            if type_on_disk == DataType::Float
-                && info.datasize == std::mem::size_of::<f64>()
-                && std::mem::size_of::<T>() == std::mem::size_of::<f32>()
-                && type_of_t == DataType::Float
-            {
-                let dst_f32: &mut [f32] = bytemuck::cast_slice_mut(dst);
-                for (i, bytes) in src_bytes
-                    .chunks_exact(std::mem::size_of::<f64>())
-                    .enumerate()
-                {
-                    let v32 = f64::from_le_bytes(bytes.try_into().unwrap()) as f32;
-                    dst_f32[i] = v32;
+                //f64 => f32
+                (DataType::Float, 8, DataType::Float, 4) => {
+                    let dst_f32: &mut [f32] = bytemuck::cast_slice_mut(dst);
+                    src_bytes
+                        .chunks_exact(8)
+                        .zip(dst_f32)
+                        .for_each(|(src, out)| {
+                            *out = f64::from_le_bytes(src.try_into().unwrap()) as f32;
+                        });
                 }
-                return;
-            }
-            //i32=>f32
-            if type_on_disk == DataType::Int
-                && info.datasize == std::mem::size_of::<i32>()
-                && std::mem::size_of::<T>() == std::mem::size_of::<f32>()
-                && type_of_t == DataType::Float
-            {
-                let dst_f32: &mut [f32] = bytemuck::cast_slice_mut(dst);
-                for (i, bytes) in src_bytes
-                    .chunks_exact(std::mem::size_of::<i32>())
-                    .enumerate()
-                {
-                    let cand = i32::from_ne_bytes(bytes.try_into().unwrap());
-                    let v32 = cand as f32;
-                    dst_f32[i] = v32;
+                //i32 => f32
+                (DataType::Int, 4, DataType::Float, 4) => {
+                    let dst_f32: &mut [f32] = bytemuck::cast_slice_mut(dst);
+                    src_bytes
+                        .chunks_exact(4)
+                        .zip(dst_f32)
+                        .for_each(|(src, out)| {
+                            *out = i32::from_le_bytes(src.try_into().unwrap()) as f32;
+                        });
                 }
-                return;
+                _ => panic!(
+                    "Incompatible read: {type_on_disk:?}({size_on_disk}) => {type_of_t:?}({size_of_t})"
+                ),
             }
-            //Any other mismatch panics!
-            panic!(
-                "Incompatible reads: {type_on_disk:?}({}) => {type_of_t:?}({}) ",
-                info.datasize,
-                std::mem::size_of::<T>()
-            );
         }
 
         // #[deprecated(note = "TODO: This reads WID from the first population file. Use get_wid(pop:&str)!")]
@@ -3617,7 +3591,7 @@ pub mod mod_vlsv_reader {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum DataType {
         Float,
         Int,
