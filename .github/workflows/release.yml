@@ -3,13 +3,14 @@ name: Release to TestPyPI
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build_wheels:
     name: Build wheels on ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
@@ -20,11 +21,10 @@ jobs:
 
       - name: Build wheels via Maturin Docker
         run: |
-          docker run --rm -v $(pwd):/io \
-          ghcr.io/pyo3/maturin build \
-          --release \
-          --manylinux 2014 \
-          --interpreter python${{ matrix.python-version }}
+          docker run --rm -v "$(pwd)":/io ghcr.io/pyo3/maturin maturin build \
+            --release \
+            --manylinux 2014 \
+            --interpreter python${{ matrix.python-version }}
 
       - name: Upload wheels as artifacts
         uses: actions/upload-artifact@v4
@@ -36,7 +36,7 @@ jobs:
     name: Publish to TestPyPI
     runs-on: ubuntu-latest
     needs: build_wheels
-    environment: testpypi  
+    environment: env
     permissions:
       contents: read
     steps:
@@ -51,4 +51,6 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          password: ${{ secrets.TOKEN }}
+          skip-existing: true
+          verbose: true
