@@ -19,5 +19,4 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Build
-      cd rust/
-      run: cargo build --lib
+      run: cd rust/ ; cargo build --lib
