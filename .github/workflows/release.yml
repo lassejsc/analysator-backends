@@ -32,10 +32,13 @@ jobs:
           name: wheels-${{ matrix.python-version }}
           path: target/wheels/*.whl
 
-  publish:
+publish:
     name: Publish to TestPyPI
     runs-on: ubuntu-latest
     needs: build_wheels 
+    permissions:
+      id-token: write  
+      contents: read   
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
