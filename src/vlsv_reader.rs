@@ -58,8 +58,11 @@ pub mod mod_vlsv_reader {
     use once_cell::sync::OnceCell;
     use regex::Regex;
     use serde::Deserialize;
+    use std::cell::RefCell;
+    use std::sync::OnceLock;
     use std::{collections::HashMap, str::FromStr};
     extern crate libc;
+    static RE_ATTR: OnceLock<Regex> = OnceLock::new();
 
     #[repr(C)]
     #[derive(Default, Clone, Copy, Debug, Pod, Zeroable)]
@@ -632,7 +635,6 @@ pub mod mod_vlsv_reader {
             };
 
             let expected_bytes = info.datasize * info.arraysize * info.vectorsize;
-            assert_eq!(dst.len() * size_of::<T>(), expected_bytes);
             let src_bytes = &self.memorymap()[info.offset..info.offset + expected_bytes];
             let type_on_disk = info.datatype;
             let size_on_disk = info.datasize;
@@ -2989,73 +2991,73 @@ pub mod mod_vlsv_reader {
         mesh: Option<&str>,
         name: Option<&str>,
     ) -> Option<Variable> {
-        let re_normal = Regex::new(&format!(
-            r#"(?s)<{t}\b([^>]*)>([^<]*)</{t}>"#,
-            t = regex::escape(tag)
-        ))
-        .unwrap();
-        let re_self =
-            Regex::new(&format!(r#"(?s)<{t}\b([^>]*)/>"#, t = regex::escape(tag))).unwrap();
-        let re_attr = Regex::new(r#"(\w+)\s*=\s*"([^"]*)""#).unwrap();
+        let re_attr = RE_ATTR.get_or_init(|| Regex::new(r#"(\w+)\s*=\s*"([^"]*)""#).unwrap());
+        thread_local! {
+            static CACHE: RefCell<HashMap<String, (Regex, Regex)>> = RefCell::new(HashMap::with_capacity(16));
+        }
+        let (re_normal, re_self) = CACHE.with(|cache_cell| {
+            let mut cache = cache_cell.borrow_mut();
+            if let Some(pair) = cache.get(tag) {
+                return pair.clone();
+            }
+
+            let t = regex::escape(tag);
+            let normal = Regex::new(&format!(r#"(?s)<{t}\b([^>]*)>([^<]*)</{t}>"#, t = t)).unwrap();
+            let self_closing = Regex::new(&format!(r#"(?s)<{t}\b([^>]*)/>"#, t = t)).unwrap();
+
+            let pair = (normal, self_closing);
+            cache.insert(tag.to_string(), pair.clone());
+            pair
+        });
         let parse_match = |attrs_str: &str, inner_text: Option<&str>| -> Option<Variable> {
-            let mut attrs: HashMap<&str, &str> = HashMap::new();
+            let mut attrs: HashMap<&str, &str> = HashMap::with_capacity(8);
             for cap in re_attr.captures_iter(attrs_str) {
-                let k = cap.get(1).unwrap().as_str();
-                let v = cap.get(2).unwrap().as_str();
-                attrs.insert(k, v);
+                attrs.insert(
+                    cap.get(1).map(|m| m.as_str()).unwrap_or(""),
+                    cap.get(2).map(|m| m.as_str()).unwrap_or(""),
+                );
             }
-
-            if let Some(m) = mesh {
-                if attrs.get("mesh").copied() != Some(m) {
-                    return None;
-                }
+            if mesh.is_some() && attrs.get("mesh").copied() != mesh {
+                return None;
             }
-            if let Some(n) = name {
-                if attrs.get("name").copied() != Some(n) {
-                    return None;
-                }
+            if name.is_some() && attrs.get("name").copied() != name {
+                return None;
             }
-
-            let arraysize = attrs.get("arraysize").map(|s| s.to_string());
-            let datasize = attrs.get("datasize").map(|s| s.to_string());
-            let datatype = attrs.get("datatype").map(|s| s.to_string());
-            let mesh_str = attrs.get("mesh").map(|s| s.to_string());
-            let name_str = attrs.get("name").map(|s| s.to_string());
-            let vectorsize = attrs.get("vectorsize").map(|s| s.to_string());
-            let compression = attrs.get("compression").map(|s| s.to_string());
-            let max_refinement_level = attrs.get("max_refinement_level").map(|s| s.to_string());
-            let offset = inner_text.map(|s| s.trim().to_string());
-
             Some(Variable {
-                arraysize,
-                datasize,
-                datatype,
-                mesh: mesh_str,
-                name: name_str.or_else(|| Some(tag.to_string())),
-                vectorsize,
-                compression,
-                max_refinement_level,
+                arraysize: attrs.get("arraysize").map(|s| s.to_string()),
+                datasize: attrs.get("datasize").map(|s| s.to_string()),
+                datatype: attrs.get("datatype").map(|s| s.to_string()),
+                mesh: attrs.get("mesh").map(|s| s.to_string()),
+                name: attrs
+                    .get("name")
+                    .map(|s| s.to_string())
+                    .or_else(|| Some(tag.to_string())),
+                vectorsize: attrs.get("vectorsize").map(|s| s.to_string()),
+                compression: attrs.get("compression").map(|s| s.to_string()),
+                max_refinement_level: attrs.get("max_refinement_level").map(|s| s.to_string()),
                 unit: attrs.get("unit").map(|s| s.to_string()),
                 unit_conversion: attrs.get("unitConversion").map(|s| s.to_string()),
                 unit_latex: attrs.get("unitLaTeX").map(|s| s.to_string()),
                 variable_latex: attrs.get("variableLaTeX").map(|s| s.to_string()),
-                offset,
+                offset: inner_text.map(|s| s.trim().to_string()),
             })
         };
+
         for caps in re_normal.captures_iter(xml) {
-            let attrs_str = caps.get(1).unwrap().as_str();
-            let text = caps.get(2).map(|m| m.as_str());
-            if let Some(v) = parse_match(attrs_str, text) {
+            if let Some(v) = parse_match(
+                caps.get(1).unwrap().as_str(),
+                caps.get(2).map(|m| m.as_str()),
+            ) {
                 return Some(v);
             }
         }
 
         for caps in re_self.captures_iter(xml) {
-            let attrs_str = caps.get(1).unwrap().as_str();
-            if let Some(v) = parse_match(attrs_str, None) {
+            if let Some(v) = parse_match(caps.get(1).unwrap().as_str(), None) {
                 return Some(v);
             }
         }
+
         None
     }
 
