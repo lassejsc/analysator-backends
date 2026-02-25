@@ -174,12 +174,6 @@ let data:Array4<_> = f.read_vdf::<f32>(256, "proton")).unwrap();
     **Keywords:**
     read_scalar_parameter, read_config, read_version, read_variable_into, get_wid, get_vspace_mesh_bbox, get_spatial_mesh_extents, get_vspace_mesh_extents, get_domain_decomposition, get_max_amr_refinement, get_writting_tasks, get_spatial_mesh_bbox, get_dataset, read_vg_variable_as_fg, read_fsgrid_variable, read_vdf, read_vdf_into, read_variable, read_tag, vg_variable_to_fg
 
-## 2) MOD_VLSV_TRACING
-  Particle tracing routines using fields from Vlasiator.
-    **Keywords:**
-    get_fields_at, new_with_energy_at_Lshell, boris, larmor_radius, borris_adaptive
-    ![Demo](video.gif?v=1.1) 
-
 ## 3) MOD_VLSV_EXPORTS
   Creates C and Python interfaces for VLSV_READER.
     **Keywords:**

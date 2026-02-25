@@ -10,7 +10,6 @@ keywords = ["vlasiator","vlsv","plasma","vdf","hpc"]
 categories = ["simulation","parsing","data-structures"]
 exclude = [
     "target/*",
-    "*.gif", # Example: exclude large data files
 ]
 
 [build-dependencies]

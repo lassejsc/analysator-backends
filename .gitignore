@@ -13,5 +13,6 @@ vg.npy
 fortran_bindings/*.mod
 fortran_bindings/*.o
 external/*
+external/
 
 
