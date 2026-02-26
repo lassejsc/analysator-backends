@@ -107,7 +107,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib={}", ml_lib_name);
 
             if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
-                println!("cargo:rustc-link-arg=-Wl,-rpath,{}", out_dir.display());
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}", ml_lib_path);
             }
             if cc == "nvcc" {
                 println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
