@@ -25,7 +25,7 @@ jobs:
     - name: Install packages
       run: |
           module load GCCcore/11.3.0
-          ml Python/3.10.4-GCCcore-11.3.0
+          #ml Python/3.10.4-GCCcore-11.3.0
           uv venv -p 3.10.4 CI_env
           . CI_env/bin/activate
           ml cmake
