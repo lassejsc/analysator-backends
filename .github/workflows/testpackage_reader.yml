@@ -1,0 +1,38 @@
+name: Import test github
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+    - name: Build
+      run: cd rust/ ; cargo build --lib
+    - name: Install python and uv
+      uses: astral-sh/setup-uv@v6
+      with:
+          python-version: "3.9"
+    - name: Install packages
+      run: |
+          . CI_env/bin/activate
+          uv pip install --editable ../analysator_backend
+          uv pip install git+https://github.com/fmihpc/analysator.git
+    - name: Import test
+      run: |
+          python -c "import vlsvrs"
+          python -c "import cpphelpers"
+          python -c "import analysator"
+
+
