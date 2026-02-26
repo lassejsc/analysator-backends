@@ -3,8 +3,7 @@ use std::process::Command;
 use std::{env, path::PathBuf};
 
 fn main() {
-    let cpphelpers = cmake::Config::new("cpphelpers")
-        .build();
+    let _cpphelpers = cmake::Config::new("cpphelpers").build();
     let zfp_dst = cmake::Config::new("rust/external/zfp")
         .define("BUILD_SHARED_LIBS", "OFF")
         .build();
@@ -56,9 +55,9 @@ fn main() {
     let mlp_src = asterix_dir.join("src/vdf_compressor_nn.cu");
     let include_path = asterix_dir.join("include");
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let root_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let ml_lib_name = "vlasiator_vdf_compressor_nn";
-    let ml_lib_path = out_dir.join(format!("lib{}.so", ml_lib_name));
+    let ml_lib_path = root_dir.join(format!("lib{}.so", ml_lib_name));
 
     let compiler = if is_program_in_path("nvcc") {
         Some("nvcc")
@@ -104,11 +103,15 @@ fn main() {
 
         if gpu_cmd.status().map(|s| s.success()).unwrap_or(false) {
             ml_compiled = true;
-            println!("cargo:rustc-link-search=native={}", out_dir.display());
+            println!("cargo:rustc-link-search=native={}", root_dir.display());
             println!("cargo:rustc-link-lib=dylib={}", ml_lib_name);
 
             if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
-                println!("cargo:rustc-link-arg=-Wl,-rpath,{}", out_dir.display());
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}", root_dir.display());
+                println!(
+                    "cargo:warning=MLP Library created at: {}",
+                    ml_lib_path.display()
+                );
             }
             if cc == "nvcc" {
                 println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
