@@ -22,12 +22,10 @@ jobs:
       uses: astral-sh/setup-uv@v6
     - name: Install packages
       run: |
-          #module load GCCcore/14.2.0
-          module load GCC/14.2.0
-          ml Python/3.11.11
-          # export CC=gcc
-          # export CXX=g++
-          uv venv -p 3.11.11 CI_env
+          module load GCC/11.3.0
+          ml Python/3.10.4-GCCcore-11.3.0
+          export PY_VERSION="3.10.4"
+          uv venv -p 3.10.4 CI_env
           . CI_env/bin/activate
           uv pip install cmake
           uv pip install ../analysator-backends
