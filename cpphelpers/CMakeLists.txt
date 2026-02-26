@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(cpphelpers)
 
 # Find Python interpreter + development headers + extension suffix
-find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+find_package(Python3 $ENV{PY_VERSION} EXACT COMPONENTS Interpreter Development.Module REQUIRED)
 
 # Build the extension module
 add_library(cpphelpers SHARED src/cpphelpers.cpp)
