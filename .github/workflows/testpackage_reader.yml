@@ -26,9 +26,9 @@ jobs:
       run: |
           module load GCCcore/11.3.0
           ml Python/3.10.4-GCCcore-11.3.0
-          uv venv CI_env
+          uv venv -p 3.10.4 CI_env
           . CI_env/bin/activate
-          uv pip install cmake
+          ml cmake
           uv pip install ../analysator-backends
           uv pip install git+https://github.com/fmihpc/analysator.git
     - name: Import test
@@ -37,7 +37,7 @@ jobs:
           python -c "import vlsvrs"
           python -c "import cpphelpers"
           python -c "import analysator"
-    - name: Run testpackage for read
+    - name: Run testpackage
       run: |
           . CI_env/bin/activate
           python ./testpackage/testpackage_vlsvread.py
