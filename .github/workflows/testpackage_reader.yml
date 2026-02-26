@@ -26,7 +26,7 @@ jobs:
       run: |
           uv venv CI_env
           . CI_env/bin/activate
-          uv pip install --editable ../analysator_backend
+          uv pip install --editable ../../analysator_backend
           uv pip install git+https://github.com/fmihpc/analysator.git
     - name: Import test
       run: |
