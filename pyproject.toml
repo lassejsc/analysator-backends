@@ -26,3 +26,4 @@ no-default-features = true
 features = ["with_bindings"]
 profile = "release"
 module-name = "vlsvrs"
+include = ["cpphelpers.so"]

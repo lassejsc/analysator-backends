@@ -3,13 +3,14 @@ use std::process::Command;
 use std::{env, path::PathBuf};
 
 fn main() {
+    let cpphelpers = cmake::Config::new("cpphelpers")
+        .build();
     let zfp_dst = cmake::Config::new("rust/external/zfp")
         .define("BUILD_SHARED_LIBS", "OFF")
         .build();
     let eigen_dst = cmake::Config::new("rust/external/eigen")
         .define("CMAKE_POLICY_VERSION_MINIMUM", "3.5")
         .build();
-
     let octree_src = Path::new("rust/external/tucker-octree");
     let cpp_file = octree_src.join("toctree.cpp");
     let mut octree_compiled = false;
