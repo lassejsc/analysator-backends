@@ -4,7 +4,7 @@ import vlsvrs
 import os
 import hashlib
 
-datalocation = "/turso/group/spacephysics/analysator/CI/analysator-test-data/vlasiator"
+datalocation = "/wrk-vakka/groups/spacephysics/vlasiator"
 files=["2D/BCQ/bulk.0002002.vlsv","3D/FID/bulk1/bulk1.0000995.vlsv"]
 
 # filename='/home/siclasse/Downloads/bulk_hermite_compressed.0000001.vlsv'
