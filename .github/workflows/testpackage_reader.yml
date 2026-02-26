@@ -24,6 +24,8 @@ jobs:
       run: |
           module load GCCcore/11.3.0
           #ml Python/3.10.4-GCCcore-11.3.0
+          export CC=gcc
+          export CXX=g++
           uv venv -p 3.10 CI_env
           . CI_env/bin/activate
           uv pip install cmake
