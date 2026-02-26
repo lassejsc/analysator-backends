@@ -3,8 +3,7 @@ use std::process::Command;
 use std::{env, path::PathBuf};
 
 fn main() {
-    let cpphelpers = cmake::Config::new("cpphelpers")
-        .build();
+    let _cpphelpers = cmake::Config::new("cpphelpers").build();
     let zfp_dst = cmake::Config::new("rust/external/zfp")
         .define("BUILD_SHARED_LIBS", "OFF")
         .build();
