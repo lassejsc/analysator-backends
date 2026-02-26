@@ -28,6 +28,7 @@ jobs:
           ml Python/3.10.4-GCCcore-11.3.0
           uv venv CI_env
           . CI_env/bin/activate
+          uv pip install cmake
           uv pip install ../analysator-backends
           uv pip install git+https://github.com/fmihpc/analysator.git
     - name: Import test
