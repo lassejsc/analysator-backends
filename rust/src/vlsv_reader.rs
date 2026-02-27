@@ -4044,6 +4044,10 @@ pub mod mod_vlsv_py_exports {
             format!("VlsvFile(filename='{}')", self.inner.filename)
         }
 
+        fn get_filename(&self) -> String {
+            format!("{}",self.inner.filename)
+        }
+
         fn list_variables(&self) -> Vec<String> {
             self.inner.variables().keys().cloned().collect()
         }
