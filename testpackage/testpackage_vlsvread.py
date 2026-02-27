@@ -7,9 +7,9 @@ import pickle
 
 datalocation = "/turso/group/spacephysics/analysator/CI/analysator-test-data/vlasiator/"
 files=["3D/FID/bulk1/bulk1.0000995.vlsv",
-       "3D/FHA/bulk1/bulk1.0001165.vlsv",
+       "3D/FHA/bulk1/bulk1.0000990.vlsv",
        "2D/BCQ/bulk/bulk.002002.vlsv",
-       "2D/ABC/bulk.0000338.vlsv"
+       "2D/ABC/bulk.0001003.vlsv"
 ]
 # "2D/BCQ/bulk/bulk.0002002.vlsv",
 # filename='/home/siclasse/Downloads/bulk_hermite_compressed.0000001.vlsv'
