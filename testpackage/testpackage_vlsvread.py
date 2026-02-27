@@ -6,7 +6,10 @@ import hashlib
 import pickle
 
 datalocation = "/wrk-vakka/group/spacephysics/vlasiator"
-files=["3D/FID/bulk1/bulk1.0000995.vlsv"]
+files=["3D/FID/bulk1/bulk1.0000995.vlsv",
+       "3D/FHA/bulk1/bulk1.0001165.vlsv",
+       "2D/BCQ/bulk/bulk.002002.vlsv"
+]
 # "2D/BCQ/bulk/bulk.0002002.vlsv",
 # filename='/home/siclasse/Downloads/bulk_hermite_compressed.0000001.vlsv'
 # filename='/home/siclasse/bulk.0000110.vlsv'
@@ -96,5 +99,7 @@ for file in files:
     filename=os.path.join(datalocation,file)
     ciTester.changeFile(filename)
     ciTester.load()
-    ciTester.compare("read_velocity_cells",{"cellid":1,"pop":"proton"},"read_vdf_sparse",{"cid":1,"pop":"proton"})
+    cid=ciTester.vlsvobj_python.get_cellid_with_vdf(np.array([0,0,0]))
+    ciTester.compare("read_velocity_cells",{"cellid":cid,"pop":"proton"},"read_vdf_sparse",{"cid":cid,"pop":"proton"})
+    quit()
 
