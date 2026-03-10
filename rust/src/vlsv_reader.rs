@@ -3985,6 +3985,14 @@ pub mod mod_vlsv_c_exports {
             .read_scalar_parameter(parameter)
             .expect("Could not read parameter {parameter} in {name}")
     }
+    #[unsafe(export_name = "get_amr_level")]
+    pub unsafe fn get_amr_level(filename: *const c_char,cid: usize ) -> i32 {
+        let name = unsafe { CStr::from_ptr(filename).to_str().unwrap() };
+        VlsvFile::new(name)
+            .unwrap()
+            .get_amr_level(cid.try_into().unwrap())
+            .expect("Could not read parameter {parameter} in {name}")
+    }
 }
 
 #[cfg(feature = "with_bindings")]
