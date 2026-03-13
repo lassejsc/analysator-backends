@@ -51,6 +51,7 @@ typedef struct {
 } VLSVRS_Grid64;
 
 extern "C" {
+VLSVRS_GenericGrid read_var_raw(const char *fname, const char *varname);
 VLSVRS_GenericGrid read_var(const char *fname, const char *varname, int op);
 VLSVRS_Grid32 read_var_32(const char *fname, const char *varname, int op);
 VLSVRS_Grid64 read_var_64(const char *fname, const char *varname, int op);

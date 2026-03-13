@@ -3720,6 +3720,48 @@ pub mod mod_vlsv_c_exports {
         let f = VlsvFile::new(name).unwrap();
         return f.get_wid(pop).expect("ERROR: could not get WID for {name}");
     }
+    #[unsafe(export_name = "read_var_raw")]
+    pub unsafe fn read_var_raw(filename: *const c_char,varname: *const c_char
+        ) -> GenericGrid {
+
+        use crate::mod_vlsv_reader::DataType;
+        use ndarray::Array1;
+        let name = unsafe { CStr::from_ptr(filename).to_str().unwrap() };
+        let var = unsafe { CStr::from_ptr(varname).to_str().unwrap() };
+        let f = VlsvFile::new(name).unwrap();
+        let ds=f.get_dataset(var).expect("Variable not found");
+
+        macro_rules! doread {
+            ($t:ty,$s:expr) => {{
+                let var: Array1<$t> = f.read_variable_data::<$t>(var,Some(0)).unwrap();
+                let dims = var.dim();
+                let mut vec = var.into_raw_vec_and_offset().0;
+                let ptr = vec.as_mut_ptr();
+                std::mem::forget(vec);
+                GenericGrid::new(
+                    (dims,0,0,0),f.get_spatial_mesh_extents().unwrap(),
+                    ptr as *mut c_void,
+                    $s
+                    ) 
+
+            }};
+        }
+
+        let retval = match (ds.datatype, ds.datasize) {
+            (DataType::Float, 4) => doread!(f32,4),
+            (DataType::Float, 8) => doread!(f64,8),
+            (DataType::Int, 4) => doread!(i32,4),
+            (DataType::Int, 8) => doread!(i64,8),
+            (DataType::Uint, 4) => doread!(u32,4),
+            (DataType::Uint, 8) => doread!(u64,8),
+            (DataType::U8, _) => doread!(u8, 0),
+            _ => panic!(
+                "Type not recognized: {:?} with size {}",
+                ds.datatype, ds.datasize
+            ),
+        };
+        retval
+    }
 
     #[unsafe(export_name = "read_var")]
     pub unsafe fn read_var(
